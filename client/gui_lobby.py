@@ -11,6 +11,8 @@ Mapped Requirements:
     along with each group's current member list.
   - R10 (Self-Join Group): Provides a "Join Group" button allowing the client to join a selected
     group by themselves (never added automatically by the creator).
+  - B1, B3, B4 (Bonus Routing): Dispatches incoming `TYPING`, `AI_SUMMARY_RES`, and `VOICE_MSG`
+    packets to the appropriate open `ChatRoomWindow`.
 """
 
 # ==============================================================================
@@ -36,21 +38,47 @@ Mapped Requirements:
 #       the group's `ChatRoomWindow` (R5, R11).
 
 # ==============================================================================
-# TODO 2: Implement Queue Polling & Incoming Event Dispatcher (`poll_incoming_queue`)
+# TODO 2: Implement Queue Polling & Incoming Envelope Dispatcher (`poll_incoming_queue`)
 # ==============================================================================
-# - Schedule `self.root.after(100, self.poll_incoming_queue)` to process events from `network_client.incoming_queue`:
+# - Schedule `self.root.after(100, self.poll_incoming_queue)` to process envelopes from `network_client.incoming_queue`:
+#   Each incoming `msg` has top-level keys `msg["type"]`, `msg["timestamp"]`, and `msg["payload"]`:
 #     - `MSG_CLIENT_LIST` (R4):
+#         Extract `clients = msg["payload"]["clients"]`.
 #         Refresh the Connected Clients list UI, ensuring own username is included.
-#     - `MSG_GROUP_LIST` (R9):
-#         Update `self.groups_data` and refresh the Groups + Member Lists UI.
-#         Also update member list header in any open `group_rooms`.
+#     - `MSG_GROUP_LIST` (R8, R9, R10):
+#         Extract `self.groups_data = msg["payload"]["groups"]` (dict of `group_name -> list[str]`).
+#         Refresh the Groups + Member Lists UI in the lobby.
+#         Also update member list header in any open `self.group_rooms`.
 #     - `MSG_PRIVATE` (R5, R6, R7):
-#         Determine the peer username (`from` if incoming, `to` if echoed sent message).
+#         Extract `sender = msg["payload"]["from"]`, `target = msg["payload"]["to"]`, `text = msg["payload"]["text"]`,
+#         and `timestamp = msg["timestamp"]`.
+#         Determine the conversation peer (`target` if `sender == self.own_username` via Server Echo, else `sender`).
 #         If `self.private_rooms[peer]` is not open yet, automatically create/open its `ChatRoomWindow` (R5).
-#         Append the message to that room's chat display window (R6).
+#         Call `room.append_message(sender, text, timestamp)` on that room's chat display window (R6).
 #     - `MSG_GROUP` (R5, R6, R11):
-#         Extract `group`, `from`, and `text`.
+#         Extract `group = msg["payload"]["group"]`, `sender = msg["payload"]["from"]`, `text = msg["payload"]["text"]`,
+#         and `timestamp = msg["timestamp"]`.
 #         If `self.group_rooms[group]` is not open yet, create/open its `ChatRoomWindow` (R5).
-#         Append the message to that group room's chat display window (R6).
+#         Call `room.append_message(sender, text, timestamp)` on that group room's chat display window (R6).
+#     - `MSG_TYPING` (B3 — Discord-style Typing Indicator):
+#         Extract `room_type = msg["payload"]["room_type"]`, `target = msg["payload"]["target"]`,
+#         `sender = msg["payload"]["from"]`, and `is_typing = msg["payload"]["is_typing"]`.
+#         Locate the open `ChatRoomWindow` (`self.private_rooms.get(sender)` if `"PRIVATE"`,
+#         or `self.group_rooms.get(target)` if `"GROUP"`).
+#         If the room window is open, call `room.update_typing_status(sender, is_typing)`.
+#     - `MSG_AI_SUMMARY_RES` (B1 — Broadcast AI Summary Result):
+#         Extract `room_type = msg["payload"]["room_type"]`, `target = msg["payload"]["target"]`,
+#         `requested_by = msg["payload"]["requested_by"]`, `summary = msg["payload"]["summary"]`,
+#         and `timestamp = msg["timestamp"]`.
+#         Locate or open the corresponding `ChatRoomWindow` and call
+#         `room.append_ai_summary(requested_by, summary, timestamp)`.
+#     - `MSG_VOICE_MSG` (B4 — Voice Clip Message):
+#         Extract `room_type = msg["payload"]["room_type"]`, `target = msg["payload"]["target"]`,
+#         `sender = msg["payload"]["from"]`, `audio_b64 = msg["payload"]["audio_b64"]`,
+#         `duration = msg["payload"]["duration"]`, and `timestamp = msg["timestamp"]`.
+#         Determine the room (`peer = target if sender == self.own_username else sender` for `"PRIVATE"`,
+#         or `target` for `"GROUP"`), ensure its `ChatRoomWindow` is open, and call
+#         `room.append_voice_message(sender, audio_b64, duration, timestamp)`.
 #     - `MSG_ERROR`:
+#         Extract `code = msg["payload"]["code"]` and `message = msg["payload"]["message"]`.
 #         Display warning/error messagebox to the user.

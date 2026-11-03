@@ -1,3 +1,4 @@
 GEMINI.md
-OVERVIEW_PROJECT.md
 SESSION_STATE.md
+__pycache__/
+*.pyc

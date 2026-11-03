@@ -24,8 +24,9 @@ Mapped Requirements:
 # - On clicking "Connect & Join":
 #     1. Validate that Server IP, Port, and Username are non-empty.
 #     2. If not yet connected to the server socket, call `network_client.connect(ip, port)`.
-#     3. Send `network_client.send_register(username)`.
-#     4. Poll `network_client.incoming_queue` (via `after()`) for `MSG_REGISTER_ACK`:
-#          - If `success == True`: invoke `on_login_success(username)` callback to open `LobbyWindow`.
-#          - If `success == False`: display the rejection message (e.g., "Username already taken")
+#     3. Send `network_client.send_register(username)` (which sends `{"type": "REGISTER", "timestamp": ..., "payload": {"username": username}}`).
+#     4. Poll `network_client.incoming_queue` (via `after()`) for `msg["type"] == MSG_REGISTER_ACK`:
+#          - Unpack `payload = msg["payload"]`.
+#          - If `payload["success"] == True`: invoke `on_login_success(username)` callback to open `LobbyWindow`.
+#          - If `payload["success"] == False`: display `payload["message"]` (e.g., "Username already taken")
 #            so the user can enter a different unique name (R3).
