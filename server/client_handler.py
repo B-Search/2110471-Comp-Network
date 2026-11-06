@@ -11,6 +11,7 @@ from common.protocol import (
     ERR_NOT_REGISTERED,
     KEY_PAYLOAD,
     KEY_TYPE,
+    MSG_CLIENT_LIST,
     MSG_ERROR,
     MSG_REGISTER,
     SocketLineBuffer,
@@ -46,6 +47,8 @@ def handle_client(
     session: Dict[str, Any] = {"username": None}
     addr_str = f"{client_addr[0]}:{client_addr[1]}"
     logger.info(f"New client connected from {addr_str}")
+
+    send_packet(client_sock, MSG_CLIENT_LIST, {"clients": state.get_client_list()})
 
     line_buffer = SocketLineBuffer(client_sock)
 

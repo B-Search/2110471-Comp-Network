@@ -82,6 +82,10 @@ class TestRegisterHandler(unittest.TestCase):
         """Empty or whitespace-only username must be rejected (R3)."""
         sock, buf = self._connect()
         try:
+            # Client immediately receives initial CLIENT_LIST upon connecting
+            initial_cl = buf.read_message()
+            self.assertEqual(initial_cl[KEY_TYPE], MSG_CLIENT_LIST)
+
             sock.sendall(encode_message(MSG_REGISTER, {"username": "   "}))
             ack = buf.read_message()
             self.assertEqual(ack[KEY_TYPE], MSG_REGISTER_ACK)
@@ -96,13 +100,21 @@ class TestRegisterHandler(unittest.TestCase):
         bob_sock, bob_buf = self._connect()
 
         try:
+            # Alice receives initial CLIENT_LIST upon connection
+            alice_init_cl = alice_buf.read_message()
+            self.assertEqual(alice_init_cl[KEY_TYPE], MSG_CLIENT_LIST)
+
+            # Bob receives initial CLIENT_LIST upon connection
+            bob_init_cl = bob_buf.read_message()
+            self.assertEqual(bob_init_cl[KEY_TYPE], MSG_CLIENT_LIST)
+
             # 1. Alice registers -> Success
             alice_sock.sendall(encode_message(MSG_REGISTER, {"username": "Alice"}))
             ack = alice_buf.read_message()
             self.assertEqual(ack[KEY_TYPE], MSG_REGISTER_ACK)
             self.assertTrue(ack[KEY_PAYLOAD]["success"])
 
-            # Alice receives CLIENT_LIST with her own name (R4)
+            # Alice receives updated CLIENT_LIST with her own name (R4)
             cl1 = alice_buf.read_message()
             self.assertEqual(cl1[KEY_TYPE], MSG_CLIENT_LIST)
             self.assertIn("Alice", cl1[KEY_PAYLOAD]["clients"])
@@ -140,6 +152,10 @@ class TestRegisterHandler(unittest.TestCase):
         c2_sock, c2_buf = self._connect()
 
         try:
+            # c1 & c2 receive initial CLIENT_LIST
+            c1_buf.read_message()
+            c2_buf.read_message()
+
             c1_sock.sendall(encode_message(MSG_REGISTER, {"username": "TempUser1"}))
             c1_buf.read_message()  # ACK
             c1_buf.read_message()  # CLIENT_LIST
