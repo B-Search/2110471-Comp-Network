@@ -8,6 +8,13 @@ Mapped Requirements:
   - B1, B3, B4 (Bonus): Sends typing indicator updates (`TYPING`), AI summary requests (`AI_SUMMARY_REQ`),
     and Base64 WAV voice clips (`VOICE_MSG`), while queuing incoming server packets for the GUI.
 """
+import socket
+import threading
+import queue
+from typing import Optional, Tuple
+from common.protocol import (
+    DEFAULT_HOST, DEFAULT_PORT, BUFFER_SIZE, SocketLineBuffer, encode_message
+)
 
 # ==============================================================================
 # TODO 1: Define `NetworkClient` Class
@@ -17,6 +24,13 @@ Mapped Requirements:
 #     - `self.incoming_queue: queue.Queue = queue.Queue()` (thread-safe bridge to Tkinter)
 #     - `self.connected: bool = False`
 #     - `self.username: str | None = None`
+
+class NetworkClient:
+    def __init__(self, incoming_queue: Optional[queue.Queue] = None):
+        self.sock: Optional[socket.socket] = None
+        self.incoming_queue: queue.Queue = incoming_queue if incoming_queue is not None else queue.Queue()
+        self.connected: bool = False
+        self.receive_thread: Optional[threading.Thread] = None
 
 # ==============================================================================
 # TODO 2: Implement Connection & Background Listener Thread (R1, R2, B2)
@@ -35,6 +49,54 @@ Mapped Requirements:
 # - `disconnect() -> None`:
 #     Close `self.sock` cleanly and set `self.connected = False`.
 
+def connect(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Tuple[bool, str]:
+        """Creates a raw TCP socket connection and launches background receiver thread (R2)."""
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.connect((host, port))
+            self.connected = True
+            self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+            self.receive_thread.start()
+            return True, "Connected successfully"
+        except Exception as e:
+            self.connected = False
+            return False, f"Connection failed: {e}"
+
+    def _receive_loop(self) -> None:
+        """Reads raw byte stream from socket and demuxes newline-delimited JSON packets (R2)."""
+        if not self.sock:
+            return
+        line_buffer = SocketLineBuffer(self.sock, BUFFER_SIZE)
+        while self.connected:
+            try:
+                msg = line_buffer.read_message()
+                self.incoming_queue.put(msg)
+            except (EOFError, ConnectionResetError, OSError):
+                break
+
+        self.connected = False
+        self.incoming_queue.put({"type": "DISCONNECTED", "payload": {}})
+
+    def disconnect(self) -> None:
+        """Closes TCP socket cleanly (R2)."""
+        self.connected = False
+        if self.sock:
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self.sock = None
+
+    def send_packet(self, msg_type: str, payload: dict) -> None:
+        """Encodes JSON envelope and transmits raw bytes over socket via sendall() (R2)."""
+        if not self.connected or not self.sock:
+            return
+        try:
+            wire_data = encode_message(msg_type, payload)
+            self.sock.sendall(wire_data)
+        except Exception:
+            self.disconnect()
+            
 # ==============================================================================
 # TODO 3: Implement Fundamental Outgoing Methods (R3, R7, R8, R10, R11)
 # ==============================================================================
@@ -55,6 +117,8 @@ Mapped Requirements:
 #
 # - `send_group_message(group_name: str, text: str) -> None`:
 #     Send `MSG_GROUP` with payload `{"group": group_name, "text": text}` (R11).
+
+
 
 # ==============================================================================
 # TODO 4: Implement Bonus Feature Outgoing Methods (B1, B3, B4)
