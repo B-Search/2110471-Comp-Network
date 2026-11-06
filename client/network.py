@@ -8,12 +8,17 @@ Mapped Requirements:
   - B1, B3, B4 (Bonus): Sends typing indicator updates (`TYPING`), AI summary requests (`AI_SUMMARY_REQ`),
     and Base64 WAV voice clips (`VOICE_MSG`), while queuing incoming server packets for the GUI.
 """
+import queue
 import socket
 import threading
-import queue
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
+
 from common.protocol import (
-    DEFAULT_HOST, DEFAULT_PORT, BUFFER_SIZE, SocketLineBuffer, encode_message
+    BUFFER_SIZE,
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    SocketLineBuffer,
+    encode_message,
 )
 
 # ==============================================================================
@@ -49,7 +54,7 @@ class NetworkClient:
 # - `disconnect() -> None`:
 #     Close `self.sock` cleanly and set `self.connected = False`.
 
-def connect(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Tuple[bool, str]:
+    def connect(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Tuple[bool, str]:
         """Creates a raw TCP socket connection and launches background receiver thread (R2)."""
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

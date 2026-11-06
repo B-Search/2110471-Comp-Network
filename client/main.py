@@ -47,8 +47,8 @@ def main():
 
     print("\n[R2 SOCKET CONNECTED] Raw TCP Socket Interface Ready.")
 
-    while True:
-        try:
+    try:
+        while True:
             # Drain and print raw packets received over socket
             while not incoming_queue.empty():
                 msg = incoming_queue.get_nowait()
@@ -72,8 +72,10 @@ def main():
             else:
                 print("Usage: send <msg_type> <text_payload>")
 
-        except KeyboardInterrupt:
-            break
+    except KeyboardInterrupt:
+        print("\nExiting...")
+    finally:
+        client.disconnect()
   
 # ==============================================================================
 # TODO 3: Implement CLI Entry Point (`if __name__ == "__main__":`)
