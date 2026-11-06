@@ -17,6 +17,7 @@ from common.protocol import (
     BUFFER_SIZE,
     DEFAULT_HOST,
     DEFAULT_PORT,
+    MSG_REGISTER,
     SocketLineBuffer,
     encode_message,
 )
@@ -35,6 +36,7 @@ class NetworkClient:
         self.sock: Optional[socket.socket] = None
         self.incoming_queue: queue.Queue = incoming_queue if incoming_queue is not None else queue.Queue()
         self.connected: bool = False
+        self.username: Optional[str] = None
         self.receive_thread: Optional[threading.Thread] = None
 
 # ==============================================================================
@@ -123,7 +125,9 @@ class NetworkClient:
 # - `send_group_message(group_name: str, text: str) -> None`:
 #     Send `MSG_GROUP` with payload `{"group": group_name, "text": text}` (R11).
 
-
+    def send_register(self, username: str) -> None:
+        """Sends MSG_REGISTER with unique username payload (R3)."""
+        self.send_packet(MSG_REGISTER, {"username": username})
 
 # ==============================================================================
 # TODO 4: Implement Bonus Feature Outgoing Methods (B1, B3, B4)
