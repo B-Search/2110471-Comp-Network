@@ -21,6 +21,7 @@ from common.protocol import (
     encode_message,
 )
 from server.client_handler import handle_client
+from server.state import ServerState
 
 TEST_HOST = "127.0.0.1"
 TEST_PORT = 5088
@@ -29,11 +30,13 @@ TEST_PORT = 5088
 class TestSocketR2(unittest.TestCase):
     server_sock: socket.socket
     server_thread: threading.Thread
+    state: ServerState
     running: bool
 
     @classmethod
     def setUpClass(cls):
         """Starts a minimal TCP Server socket on TEST_PORT."""
+        cls.state = ServerState()
         cls.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         cls.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         cls.server_sock.bind((TEST_HOST, TEST_PORT))
@@ -47,7 +50,7 @@ class TestSocketR2(unittest.TestCase):
                     client_sock, client_addr = cls.server_sock.accept()
                     t = threading.Thread(
                         target=handle_client,
-                        args=(client_sock, client_addr),
+                        args=(client_sock, client_addr, cls.state),
                         daemon=True,
                     )
                     t.start()
@@ -78,6 +81,10 @@ class TestSocketR2(unittest.TestCase):
         buf = SocketLineBuffer(client_sock)
 
         try:
+            # Client immediately receives initial CLIENT_LIST on connect
+            init_cl = buf.read_message()
+            self.assertEqual(init_cl[KEY_TYPE], "CLIENT_LIST")
+
             # 2. Client sends a JSON message over the TCP socket
             msg_sent = {
                 "type": "REGISTER",
