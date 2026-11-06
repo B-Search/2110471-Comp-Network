@@ -64,7 +64,7 @@ class NetworkClient:
             self.receive_thread.start()
             return True, "Connected successfully"
         except Exception as e:
-            self.connected = False
+            self.disconnect()  
             return False, f"Connection failed: {e}"
 
     def _receive_loop(self) -> None:
