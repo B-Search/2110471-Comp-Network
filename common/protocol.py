@@ -9,130 +9,190 @@ Mapped Requirements:
   - B1, B3, B4 (Bonus Features): Defines `TYPING`, `AI_SUMMARY_REQ`, `AI_SUMMARY_RES`, and `VOICE_MSG`.
 """
 
-# ==============================================================================
-# TODO 1: Define Network & Framing Constants
-# ==============================================================================
-# - DEFAULT_HOST = "0.0.0.0"   # Server bind address across all LAN / Cloud VPS interfaces
-# - DEFAULT_PORT = 5000        # Default TCP listening port
-# - ENCODING     = "utf-8"     # Standard wire character encoding
-# - DELIMITER    = "\n"        # Newline delimiter separating JSON packets on the TCP stream
-# - BUFFER_SIZE  = 16384       # Byte chunk size for `sock.recv(BUFFER_SIZE)` (sized to handle Base64 voice clips smoothly)
+import json
+import socket
+from datetime import datetime
+from typing import Any, Dict, Generator, Optional, Union
 
 # ==============================================================================
-# TODO 2: Define Standard JSON Envelope Keys & Room Type Constants
+# 1. Network & Framing Constants (R1, R2)
 # ==============================================================================
-# Every packet exchanged between Client and Server MUST use this 3-key top-level structure:
-#   {
-#       "type": "<MESSAGE_TYPE>",
-#       "timestamp": "HH:MM:SS",
-#       "payload": { ... }
-#   }
-# - KEY_TYPE      = "type"
-# - KEY_TIMESTAMP = "timestamp"
-# - KEY_PAYLOAD   = "payload"
-#
-# Room Type Constants (used in `TYPING`, `AI_SUMMARY_REQ`, `AI_SUMMARY_RES`, `VOICE_MSG`):
-# - ROOM_PRIVATE  = "PRIVATE"
-# - ROOM_GROUP    = "GROUP"
+DEFAULT_HOST: str = "0.0.0.0"   # Bind to all network interfaces (LAN / Cloud VPS)
+DEFAULT_PORT: int = 5000        # Default TCP port for chat server
+ENCODING: str = "utf-8"         # Standard character encoding for all network packets
+DELIMITER: str = "\n"           # Stream frame delimiter (newline separates JSON packets)
+BUFFER_SIZE: int = 16384        # Chunk size for socket recv (16KB handles voice base64 smoothly)
 
 # ==============================================================================
-# TODO 3: Define Fundamental Message Type Constants & Payloads (R3–R11)
+# 2. Standard JSON Envelope Keys & Room Type Constants
 # ==============================================================================
-# 1. Registration (R3):
-#    - MSG_REGISTER     = "REGISTER"
-#      Client -> Server payload: `{"username": "<str>"}`
-#    - MSG_REGISTER_ACK = "REGISTER_ACK"
-#      Server -> Client payload: `{"success": <bool>, "message": "<str>"}`
-#
-# 2. Online Client Directory (R4):
-#    - MSG_CLIENT_LIST  = "CLIENT_LIST"
-#      Server -> All payload:    `{"clients": ["<username1>", "<username2>", ...]}`
-#
-# 3. Private 1-to-1 Chat (R5, R6, R7):
-#    - MSG_PRIVATE      = "PRIVATE_MSG"
-#      Client -> Server payload:           `{"to": "<target_user>", "text": "<str>"}`
-#      Server -> Receiver & Sender (Echo): `{"from": "<sender_user>", "to": "<target_user>", "text": "<str>"}`
-#
-# 4. Group Management & Directory (R8, R9, R10):
-#    - MSG_CREATE_GROUP = "CREATE_GROUP"
-#      Client -> Server payload: `{"group": "<group_name>"}` (creator becomes sole initial member, R8)
-#    - MSG_JOIN_GROUP   = "JOIN_GROUP"
-#      Client -> Server payload: `{"group": "<group_name>"}` (self-join only, R10)
-#    - MSG_GROUP_LIST   = "GROUP_LIST"
-#      Server -> All payload:    `{"groups": {"<group_name>": ["<member1>", "<member2>", ...]}}` (R9)
-#
-# 5. Group Chat Messaging (R5, R6, R11):
-#    - MSG_GROUP        = "GROUP_MSG"
-#      Client -> Server payload:               `{"group": "<group_name>", "text": "<str>"}`
-#      Server -> Group Members (incl. Sender): `{"group": "<group_name>", "from": "<sender_user>", "text": "<str>"}`
-#
-# 6. Error Reporting:
-#    - MSG_ERROR        = "ERROR"
-#      Server -> Client payload: `{"code": "<ERROR_CODE>", "message": "<human_readable_str>"}`
+KEY_TYPE: str = "type"
+KEY_TIMESTAMP: str = "timestamp"
+KEY_PAYLOAD: str = "payload"
+
+ROOM_PRIVATE: str = "PRIVATE"
+ROOM_GROUP: str = "GROUP"
 
 # ==============================================================================
-# TODO 4: Define Bonus Feature Message Type Constants & Payloads (B1, B3, B4)
+# 3. Fundamental Message Type Constants (Part 2: R3–R11)
 # ==============================================================================
-# 7. Typing Indicator (B3 — Discord-style typing status):
-#    - MSG_TYPING         = "TYPING"
-#      Client -> Server payload:
-#        `{"room_type": "PRIVATE" | "GROUP", "target": "<peer_or_group>", "is_typing": <bool>}`
-#      Server -> Peer or Group Members (excluding sender) payload:
-#        `{"room_type": "PRIVATE" | "GROUP", "target": "<peer_or_group>", "from": "<sender_user>", "is_typing": <bool>}`
-#
-# 8. AI Chat Summary (B1 — Server-side history & LLM summary broadcast):
-#    - MSG_AI_SUMMARY_REQ = "AI_SUMMARY_REQ"
-#      Client -> Server payload:
-#        `{"room_type": "PRIVATE" | "GROUP", "target": "<peer_or_group>"}`
-#    - MSG_AI_SUMMARY_RES = "AI_SUMMARY_RES"
-#      Server -> All Participants in that Room payload:
-#        `{"room_type": "PRIVATE" | "GROUP", "target": "<peer_or_group>", "requested_by": "<username>", "summary": "<str>"}`
-#
-# 9. Voice Message Clips (B4 — Base64 WAV audio clip over TCP JSON):
-#    - MSG_VOICE_MSG      = "VOICE_MSG"
-#      Client -> Server payload:
-#        `{"room_type": "PRIVATE" | "GROUP", "target": "<peer_or_group>", "audio_b64": "<base64_wav_str>", "duration": <float>}`
-#      Server -> Receiver & Sender (for PRIVATE) or All Group Members (for GROUP) payload:
-#        `{"room_type": "PRIVATE" | "GROUP", "target": "<peer_or_group>", "from": "<sender_user>", "audio_b64": "<base64_wav_str>", "duration": <float>}`
+# Registration & Authentication (R3)
+MSG_REGISTER: str = "REGISTER"
+MSG_REGISTER_ACK: str = "REGISTER_ACK"
+
+# Online User Directory (R4)
+MSG_CLIENT_LIST: str = "CLIENT_LIST"
+
+# Private 1-on-1 Messaging (R5, R6, R7)
+MSG_PRIVATE: str = "PRIVATE_MSG"
+
+# Group Lifecycle & Directory (R8, R9, R10)
+MSG_CREATE_GROUP: str = "CREATE_GROUP"
+MSG_GROUP_LIST: str = "GROUP_LIST"
+MSG_JOIN_GROUP: str = "JOIN_GROUP"
+
+# Group Chat Messaging (R5, R6, R11)
+MSG_GROUP: str = "GROUP_MSG"
+
+# Error Notification
+MSG_ERROR: str = "ERROR"
 
 # ==============================================================================
-# TODO 5: Define Standard Error Code Constants (`payload["code"]` in `MSG_ERROR`)
+# 4. Bonus Feature Message Type Constants (Part 3: B1, B3, B4)
 # ==============================================================================
-# - ERR_USERNAME_TAKEN   = "USERNAME_TAKEN"    # R3: Username is empty or already in use
-# - ERR_NOT_REGISTERED   = "NOT_REGISTERED"    # R3: Client sent action before registering
-# - ERR_USER_NOT_FOUND   = "USER_NOT_FOUND"    # R7/B4: Target private chat user is offline/missing
-# - ERR_GROUP_EXISTS     = "GROUP_EXISTS"      # R8: Group name already exists on CREATE_GROUP
-# - ERR_GROUP_NOT_FOUND  = "GROUP_NOT_FOUND"   # R10/R11/B1/B3/B4: Target group does not exist
-# - ERR_ALREADY_IN_GROUP = "ALREADY_IN_GROUP"  # R10: Client is already a member of the group
-# - ERR_NOT_IN_GROUP     = "NOT_IN_GROUP"      # R11/B1/B3/B4: Client tried acting in a group they haven't joined
-# - ERR_AI_UNAVAILABLE   = "AI_UNAVAILABLE"    # B1: AI API key missing, history empty, or LLM request failed
-# - ERR_INVALID_PACKET   = "INVALID_PACKET"    # Malformed JSON or missing envelope/payload keys
+# Real-Time Typing Indicator (B3)
+MSG_TYPING: str = "TYPING"
+
+# AI Chat History Summarization (B1)
+MSG_AI_SUMMARY_REQ: str = "AI_SUMMARY_REQ"
+MSG_AI_SUMMARY_RES: str = "AI_SUMMARY_RES"
+
+# Push-to-Talk Voice Message (B4)
+MSG_VOICE_MSG: str = "VOICE_MSG"
 
 # ==============================================================================
-# TODO 6: Implement Envelope Builder & Serialization Helpers
+# 5. Standard Error Codes (`payload["code"]` in `MSG_ERROR`)
 # ==============================================================================
-# - Function `build_message(msg_type: str, payload: dict) -> dict`:
-#     Construct and return the standard 3-key dictionary:
-#     `{"type": msg_type, "timestamp": datetime.now().strftime("%H:%M:%S"), "payload": payload}`
-#
-# - Function `encode_message(msg_type: str, payload: dict) -> bytes`:
-#     Call `build_message(msg_type, payload)`, serialize to a compact single-line JSON string
-#     via `json.dumps(..., ensure_ascii=False)`, append `DELIMITER` ("\n"), and `.encode(ENCODING)`.
-#
-# - Function `decode_message(raw_line: str) -> dict`:
-#     Parse a single newline-stripped JSON string via `json.loads(raw_line)` and validate that
-#     it is a `dict` containing `"type"`, `"timestamp"`, and `"payload"`.
+ERR_USERNAME_TAKEN: str = "USERNAME_TAKEN"    # R3: Username is empty or already in use
+ERR_NOT_REGISTERED: str = "NOT_REGISTERED"    # R3: Client sent action before registering
+ERR_USER_NOT_FOUND: str = "USER_NOT_FOUND"    # R7/B4: Target private user is offline
+ERR_GROUP_EXISTS: str = "GROUP_EXISTS"        # R8: Group name already exists
+ERR_GROUP_NOT_FOUND: str = "GROUP_NOT_FOUND"  # R10/R11: Target group does not exist
+ERR_ALREADY_IN_GROUP: str = "ALREADY_IN_GROUP"# R10: User already joined the group
+ERR_NOT_IN_GROUP: str = "NOT_IN_GROUP"        # R11: User tried acting in a non-joined group
+ERR_AI_UNAVAILABLE: str = "AI_UNAVAILABLE"    # B1: AI API key missing or LLM failed
+ERR_INVALID_PACKET: str = "INVALID_PACKET"    # Malformed JSON or missing keys
+
 
 # ==============================================================================
-# TODO 7: Implement TCP Stream Line-Buffer Helper
+# 6. Serialization & Envelope Helpers
 # ==============================================================================
-# - Because TCP (`SOCK_STREAM`) is a continuous byte stream without built-in message boundaries:
-#     * Multiple JSON packets may arrive concatenated in a single `sock.recv()` call.
-#     * A single JSON packet (especially a `VOICE_MSG` containing `audio_b64`) may arrive split
-#       across multiple `sock.recv()` calls.
-# - Implement a helper class `SocketLineBuffer`:
-#     1. Maintain an internal byte or string buffer per socket connection.
-#     2. Append newly received chunks from `sock.recv(BUFFER_SIZE)` into the buffer.
-#     3. While `DELIMITER` ("\n") is present in the buffer:
-#          - Split off the first complete line (`line, buffer = buffer.split("\n", 1)`).
-#          - Ignore empty lines, parse `line` with `decode_message(line)`, and yield/return the dict.
+def get_current_timestamp() -> str:
+    """Returns current local time formatted as 'HH:MM:SS'."""
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def build_message(msg_type: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Constructs a standard 3-key envelope dictionary:
+      {"type": msg_type, "timestamp": "HH:MM:SS", "payload": payload or {}}
+    """
+    return {
+        KEY_TYPE: msg_type,
+        KEY_TIMESTAMP: get_current_timestamp(),
+        KEY_PAYLOAD: payload if payload is not None else {}
+    }
+
+
+def encode_message(msg_or_type: Union[str, Dict[str, Any]], payload: Optional[Dict[str, Any]] = None) -> bytes:
+    """
+    Encodes a message into newline-delimited UTF-8 JSON bytes ready for `sock.sendall()`.
+
+    Can be called either as:
+      encode_message("REGISTER", {"username": "Alice"})
+    or:
+      encode_message({"type": "REGISTER", "timestamp": "12:00:00", "payload": {...}})
+    """
+    if isinstance(msg_or_type, str):
+        envelope = build_message(msg_or_type, payload)
+    elif isinstance(msg_or_type, dict):
+        envelope = dict(msg_or_type)
+        if KEY_TIMESTAMP not in envelope:
+            envelope[KEY_TIMESTAMP] = get_current_timestamp()
+        if KEY_PAYLOAD not in envelope:
+            envelope[KEY_PAYLOAD] = payload if payload is not None else {}
+    else:
+        raise TypeError(f"Expected str or dict for message, got {type(msg_or_type).__name__}")
+
+    json_str = json.dumps(envelope, ensure_ascii=False)
+    return (json_str + DELIMITER).encode(ENCODING)
+
+
+def decode_message(raw_line: str) -> Dict[str, Any]:
+    """
+    Parses a single newline-stripped JSON string and validates standard envelope structure.
+    Raises json.JSONDecodeError or ValueError on malformed packets.
+    """
+    data = json.loads(raw_line)
+    if not isinstance(data, dict):
+        raise ValueError("Malformed packet: expected JSON object at top level")
+    if KEY_TYPE not in data:
+        raise ValueError("Malformed packet: missing 'type' key")
+    if KEY_PAYLOAD not in data or not isinstance(data[KEY_PAYLOAD], dict):
+        raise ValueError("Malformed packet: missing or non-dict 'payload' key")
+    if KEY_TIMESTAMP not in data:
+        data[KEY_TIMESTAMP] = get_current_timestamp()
+    return data
+
+
+# ==============================================================================
+# 7. TCP Stream Line Buffer Helper (Stream Demarcation)
+# ==============================================================================
+class SocketLineBuffer:
+    """
+    Buffers byte chunks from a TCP socket stream (`sock.recv()`) and yields
+    fully-assembled, newline-delimited JSON message dictionaries.
+
+    Solves:
+      1. Sticky Packets: Multiple JSON envelopes received in one `recv()` call.
+      2. Packet Fragmentation: Large payloads (e.g. voice Base64) split across multiple `recv()` calls.
+    """
+
+    def __init__(self, sock: socket.socket, buffer_size: int = BUFFER_SIZE):
+        self.sock = sock
+        self.buffer_size = buffer_size
+        self._buffer: str = ""
+
+    def read_message(self) -> Dict[str, Any]:
+        """
+        Reads and returns the next complete JSON message dictionary.
+        Blocks until a complete newline-terminated line is available.
+
+        Raises:
+          EOFError: When the socket is closed cleanly by peer (recv returns 0 bytes).
+          ConnectionResetError / OSError: When connection drops unexpectedly.
+        """
+        while True:
+            if DELIMITER in self._buffer:
+                line, self._buffer = self._buffer.split(DELIMITER, 1)
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    return decode_message(line)
+                except (json.JSONDecodeError, ValueError) as err:
+                    # Skip malformed line and continue waiting for valid lines
+                    continue
+
+            chunk = self.sock.recv(self.buffer_size)
+            if not chunk:
+                raise EOFError("TCP socket connection closed by peer")
+            self._buffer += chunk.decode(ENCODING, errors="replace")
+
+    def __iter__(self) -> Generator[Dict[str, Any], None, None]:
+        """Allows iterating over incoming messages until socket disconnection."""
+        while True:
+            try:
+                yield self.read_message()
+            except EOFError:
+                break
